@@ -36,7 +36,13 @@ export const updateSettings = createServerFn({ method: "POST" })
     return schema.parse(d);
   })
   .handler(async ({ data, context }) => {
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: {
+      updated_at: string;
+      working_hours?: Record<string, Array<{ start: string; end: string }>>;
+      booking_page_title?: string;
+      booking_page_description?: string;
+      logo_url?: string | null;
+    } = { updated_at: new Date().toISOString() };
     if (data.working_hours) patch.working_hours = data.working_hours;
     if (data.booking_page_title !== undefined) patch.booking_page_title = data.booking_page_title;
     if (data.booking_page_description !== undefined) patch.booking_page_description = data.booking_page_description;
