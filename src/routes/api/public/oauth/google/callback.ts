@@ -10,7 +10,11 @@ export const Route = createFileRoute("/api/public/oauth/google/callback")({
         const url = new URL(req.url);
         const code = url.searchParams.get("code");
         const err = url.searchParams.get("error");
-        if (err) return Response.redirect(`${url.origin}/settings?google_error=${encodeURIComponent(err)}`, 302);
+        if (err)
+          return Response.redirect(
+            `${url.origin}/settings?google_error=${encodeURIComponent(err)}`,
+            302,
+          );
         if (!code) return new Response("Missing code", { status: 400 });
 
         const clientId = process.env.GOOGLE_CLIENT_ID!;
@@ -44,7 +48,9 @@ export const Route = createFileRoute("/api/public/oauth/google/callback")({
             const info = await infoResp.json();
             email = info.email ?? null;
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         const svc = createClient(
           process.env.SUPABASE_URL!,
@@ -53,13 +59,24 @@ export const Route = createFileRoute("/api/public/oauth/google/callback")({
         );
 
         const expiry = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000).toISOString();
-        await svc.from("settings").update({
+        const patch: Record<string, unknown> = {
           google_connected: true,
           google_account_email: email,
           google_access_token: tokens.access_token,
-          google_refresh_token: tokens.refresh_token,
           google_token_expiry: expiry,
-        }).eq("id", 1);
+        };
+        // Google only returns a refresh_token on some grants (first consent,
+        // or when prompt=consent forces re-approval — which start.ts always
+        // sets). If it's ever missing on a reconnect, don't overwrite a
+        // previously-working refresh token with null.
+        if (tokens.refresh_token) {
+          patch.google_refresh_token = tokens.refresh_token;
+        } else {
+          console.error(
+            "[google oauth] No refresh_token in token response — keeping existing one, if any",
+          );
+        }
+        await svc.from("settings").update(patch).eq("id", 1);
 
         return Response.redirect(`${url.origin}/settings?google=connected`, 302);
       },

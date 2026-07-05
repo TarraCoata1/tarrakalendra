@@ -9,7 +9,11 @@ import { jerusalemDayOfWeek, jerusalemDateTimeToUTC, TIMEZONE } from "./time";
 export const getSettings = createServerFn({ method: "GET" })
   .middleware([requireOwner])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase.from("settings").select("*").eq("id", 1).single();
+    const { data, error } = await context.supabase
+      .from("settings")
+      .select("*")
+      .eq("id", 1)
+      .single();
     if (error) throw new Error(error.message);
     return data;
   });
@@ -21,20 +25,22 @@ const workingHoursSchema = z.record(
 
 export const updateSettings = createServerFn({ method: "POST" })
   .middleware([requireOwner])
-  .inputValidator((d: {
-    working_hours?: Record<string, Array<{ start: string; end: string }>>;
-    booking_page_title?: string;
-    booking_page_description?: string;
-    logo_url?: string | null;
-  }) => {
-    const schema = z.object({
-      working_hours: workingHoursSchema.optional(),
-      booking_page_title: z.string().max(200).optional(),
-      booking_page_description: z.string().max(1000).optional(),
-      logo_url: z.string().max(2000).nullable().optional(),
-    });
-    return schema.parse(d);
-  })
+  .inputValidator(
+    (d: {
+      working_hours?: Record<string, Array<{ start: string; end: string }>>;
+      booking_page_title?: string;
+      booking_page_description?: string;
+      logo_url?: string | null;
+    }) => {
+      const schema = z.object({
+        working_hours: workingHoursSchema.optional(),
+        booking_page_title: z.string().max(200).optional(),
+        booking_page_description: z.string().max(1000).optional(),
+        logo_url: z.string().max(2000).nullable().optional(),
+      });
+      return schema.parse(d);
+    },
+  )
   .handler(async ({ data, context }) => {
     const patch: {
       updated_at: string;
@@ -45,7 +51,8 @@ export const updateSettings = createServerFn({ method: "POST" })
     } = { updated_at: new Date().toISOString() };
     if (data.working_hours) patch.working_hours = data.working_hours;
     if (data.booking_page_title !== undefined) patch.booking_page_title = data.booking_page_title;
-    if (data.booking_page_description !== undefined) patch.booking_page_description = data.booking_page_description;
+    if (data.booking_page_description !== undefined)
+      patch.booking_page_description = data.booking_page_description;
     if (data.logo_url !== undefined) patch.logo_url = data.logo_url;
     const { error } = await context.supabase.from("settings").update(patch).eq("id", 1);
     if (error) throw new Error(error.message);
@@ -62,7 +69,9 @@ export const getPublicBranding = createServerFn({ method: "GET" }).handler(async
     .select("booking_page_title, booking_page_description, logo_url")
     .eq("id", 1)
     .single();
-  return data ?? { booking_page_title: "Book a Session", booking_page_description: "", logo_url: null };
+  return (
+    data ?? { booking_page_title: "Book a Session", booking_page_description: "", logo_url: null }
+  );
 });
 
 // --------------------------- Meetings ---------------------------
@@ -82,13 +91,19 @@ export const getMeetings = createServerFn({ method: "GET" })
 export const updateMeetingStatus = createServerFn({ method: "POST" })
   .middleware([requireOwner])
   .inputValidator((d: { id: string; status: "pending" | "confirmed" | "rejected" | "cancelled" }) =>
-    z.object({
-      id: z.string().uuid(),
-      status: z.enum(["pending", "confirmed", "rejected", "cancelled"]),
-    }).parse(d),
+    z
+      .object({
+        id: z.string().uuid(),
+        status: z.enum(["pending", "confirmed", "rejected", "cancelled"]),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const { data: meeting } = await context.supabase.from("meetings").select("*").eq("id", data.id).single();
+    const { data: meeting } = await context.supabase
+      .from("meetings")
+      .select("*")
+      .eq("id", data.id)
+      .single();
     if (!meeting) throw new Error("Meeting not found");
 
     const { createGoogleEvent, deleteGoogleEvent } = await import("./google.server");
@@ -102,33 +117,87 @@ export const updateMeetingStatus = createServerFn({ method: "POST" })
         description: meeting.attendee_purpose ?? "",
         attendeeEmail: meeting.attendee_email ?? undefined,
       });
-      await context.supabase.from("meetings").update({
-        status: "confirmed",
-        google_event_id: eventId,
-      }).eq("id", data.id);
+      await context.supabase
+        .from("meetings")
+        .update({
+          status: "confirmed",
+          google_event_id: eventId,
+        })
+        .eq("id", data.id);
       return { ok: true };
     }
 
     // Cancel/reject -> delete Google event
     if ((data.status === "cancelled" || data.status === "rejected") && meeting.google_event_id) {
       await deleteGoogleEvent(meeting.google_event_id as string);
-      await context.supabase.from("meetings").update({
-        status: data.status,
-        google_event_id: null,
-      }).eq("id", data.id);
+      await context.supabase
+        .from("meetings")
+        .update({
+          status: data.status,
+          google_event_id: null,
+        })
+        .eq("id", data.id);
       return { ok: true };
     }
 
-    const { error } = await context.supabase.from("meetings").update({ status: data.status }).eq("id", data.id);
+    const { error } = await context.supabase
+      .from("meetings")
+      .update({ status: data.status })
+      .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+export const syncMeetingToGoogle = createServerFn({ method: "POST" })
+  .middleware([requireOwner])
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: meeting } = await context.supabase
+      .from("meetings")
+      .select("*")
+      .eq("id", data.id)
+      .single();
+    if (!meeting) throw new Error("Meeting not found");
+    if (meeting.google_event_id) return { ok: true, alreadySynced: true };
+
+    const { createGoogleEvent, serviceClient } = await import("./google.server");
+    const svc = serviceClient();
+    const { data: settings } = await svc
+      .from("settings")
+      .select("google_connected")
+      .eq("id", 1)
+      .single();
+    if (!settings?.google_connected) {
+      throw new Error("Google Calendar is not connected. Connect it in Settings first.");
+    }
+
+    const eventId = await createGoogleEvent({
+      title: meeting.title,
+      startISO: meeting.start_time as string,
+      endISO: meeting.end_time as string,
+      description: meeting.attendee_purpose ?? "",
+      attendeeEmail: meeting.attendee_email ?? undefined,
+    });
+    if (!eventId) {
+      throw new Error("Google sync failed. Check the connection in Settings and try again.");
+    }
+    const { error } = await context.supabase
+      .from("meetings")
+      .update({ google_event_id: eventId })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true, google_event_id: eventId };
   });
 
 export const deleteMeeting = createServerFn({ method: "POST" })
   .middleware([requireOwner])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
-    const { data: meeting } = await context.supabase.from("meetings").select("google_event_id").eq("id", data.id).single();
+    const { data: meeting } = await context.supabase
+      .from("meetings")
+      .select("google_event_id")
+      .eq("id", data.id)
+      .single();
     if (meeting?.google_event_id) {
       const { deleteGoogleEvent } = await import("./google.server");
       await deleteGoogleEvent(meeting.google_event_id as string);
@@ -141,14 +210,20 @@ export const deleteMeeting = createServerFn({ method: "POST" })
 export const rescheduleMeeting = createServerFn({ method: "POST" })
   .middleware([requireOwner])
   .inputValidator((d: { id: string; start_time: string; end_time: string }) =>
-    z.object({
-      id: z.string().uuid(),
-      start_time: z.string(),
-      end_time: z.string(),
-    }).parse(d),
+    z
+      .object({
+        id: z.string().uuid(),
+        start_time: z.string(),
+        end_time: z.string(),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const { data: meeting } = await context.supabase.from("meetings").select("*").eq("id", data.id).single();
+    const { data: meeting } = await context.supabase
+      .from("meetings")
+      .select("*")
+      .eq("id", data.id)
+      .single();
     if (!meeting) throw new Error("Meeting not found");
 
     const { deleteGoogleEvent, createGoogleEvent } = await import("./google.server");
@@ -163,11 +238,14 @@ export const rescheduleMeeting = createServerFn({ method: "POST" })
         attendeeEmail: meeting.attendee_email ?? undefined,
       });
     }
-    const { error } = await context.supabase.from("meetings").update({
-      start_time: data.start_time,
-      end_time: data.end_time,
-      google_event_id: newEventId,
-    }).eq("id", data.id);
+    const { error } = await context.supabase
+      .from("meetings")
+      .update({
+        start_time: data.start_time,
+        end_time: data.end_time,
+        google_event_id: newEventId,
+      })
+      .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -184,8 +262,12 @@ export const parseSchedulingText = createServerFn({ method: "POST" })
     const now = new Date();
     const jerusalemNow = new Intl.DateTimeFormat("sv-SE", {
       timeZone: TIMEZONE,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
       hour12: false,
     }).format(now);
 
@@ -199,7 +281,7 @@ Parse relative descriptions accurately (e.g., "יום חמישי ב-4 אחה"צ"
     const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -230,13 +312,21 @@ Parse relative descriptions accurately (e.g., "יום חמישי ב-4 אחה"צ"
 
 export const createDirectMeeting = createServerFn({ method: "POST" })
   .middleware([requireOwner])
-  .inputValidator((d: { title: string; start_time: string; end_time: string; source?: "dashboard" | "telegram" }) =>
-    z.object({
-      title: z.string().min(1).max(200),
-      start_time: z.string(),
-      end_time: z.string(),
-      source: z.enum(["dashboard", "telegram"]).optional(),
-    }).parse(d),
+  .inputValidator(
+    (d: {
+      title: string;
+      start_time: string;
+      end_time: string;
+      source?: "dashboard" | "telegram";
+    }) =>
+      z
+        .object({
+          title: z.string().min(1).max(200),
+          start_time: z.string(),
+          end_time: z.string(),
+          source: z.enum(["dashboard", "telegram"]).optional(),
+        })
+        .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { createGoogleEvent } = await import("./google.server");
@@ -245,14 +335,18 @@ export const createDirectMeeting = createServerFn({ method: "POST" })
       startISO: data.start_time,
       endISO: data.end_time,
     });
-    const { data: row, error } = await context.supabase.from("meetings").insert({
-      title: data.title,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      status: "confirmed",
-      source: data.source ?? "dashboard",
-      google_event_id: eventId,
-    }).select("*").single();
+    const { data: row, error } = await context.supabase
+      .from("meetings")
+      .insert({
+        title: data.title,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        status: "confirmed",
+        source: data.source ?? "dashboard",
+        google_event_id: eventId,
+      })
+      .select("*")
+      .single();
     if (error) throw new Error(error.message);
     return row;
   });
@@ -267,7 +361,10 @@ export const getAvailability = createServerFn({ method: "POST" })
     const { serviceClient, googleFreeBusy } = await import("./google.server");
     const svc = serviceClient();
     const { data: settings } = await svc.from("settings").select("*").eq("id", 1).single();
-    const workingHours = (settings?.working_hours ?? {}) as Record<string, Array<{ start: string; end: string }>>;
+    const workingHours = (settings?.working_hours ?? {}) as Record<
+      string,
+      Array<{ start: string; end: string }>
+    >;
     const isConnected = !!settings?.google_connected;
 
     const from = new Date(data.fromISO);
@@ -308,7 +405,7 @@ export const getAvailability = createServerFn({ method: "POST" })
         for (let s = startUTC.getTime(); s + 3600 * 1000 <= endUTC.getTime(); s += 3600 * 1000) {
           const e = s + 3600 * 1000;
           if (s < Date.now()) continue;
-          const clash = busy.some(b => s < b.end && e > b.start);
+          const clash = busy.some((b) => s < b.end && e > b.start);
           if (!clash) {
             slots.push({ start: new Date(s).toISOString(), end: new Date(e).toISOString() });
           }
@@ -321,17 +418,23 @@ export const getAvailability = createServerFn({ method: "POST" })
 // --------------------------- Public pending booking ---------------------------
 
 export const createPendingBooking = createServerFn({ method: "POST" })
-  .inputValidator((d: {
-    start_time: string; end_time: string;
-    attendee_name: string; attendee_email: string; attendee_purpose: string;
-  }) =>
-    z.object({
-      start_time: z.string(),
-      end_time: z.string(),
-      attendee_name: z.string().trim().min(1).max(100),
-      attendee_email: z.string().trim().email().max(255),
-      attendee_purpose: z.string().trim().min(1).max(1000),
-    }).parse(d),
+  .inputValidator(
+    (d: {
+      start_time: string;
+      end_time: string;
+      attendee_name: string;
+      attendee_email: string;
+      attendee_purpose: string;
+    }) =>
+      z
+        .object({
+          start_time: z.string(),
+          end_time: z.string(),
+          attendee_name: z.string().trim().min(1).max(100),
+          attendee_email: z.string().trim().email().max(255),
+          attendee_purpose: z.string().trim().min(1).max(1000),
+        })
+        .parse(d),
   )
   .handler(async ({ data }) => {
     const { serviceClient } = await import("./google.server");
@@ -370,13 +473,16 @@ export const createPendingBooking = createServerFn({ method: "POST" })
 export const googleDisconnect = createServerFn({ method: "POST" })
   .middleware([requireOwner])
   .handler(async ({ context }) => {
-    const { error } = await context.supabase.from("settings").update({
-      google_connected: false,
-      google_account_email: null,
-      google_access_token: null,
-      google_refresh_token: null,
-      google_token_expiry: null,
-    }).eq("id", 1);
+    const { error } = await context.supabase
+      .from("settings")
+      .update({
+        google_connected: false,
+        google_account_email: null,
+        google_access_token: null,
+        google_refresh_token: null,
+        google_token_expiry: null,
+      })
+      .eq("id", 1);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -387,7 +493,8 @@ export const isOwner = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data } = await context.supabase.rpc("has_role", {
-      _user_id: context.userId, _role: "owner",
+      _user_id: context.userId,
+      _role: "owner",
     });
     return { isOwner: !!data };
   });
