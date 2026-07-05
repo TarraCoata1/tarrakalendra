@@ -10,33 +10,44 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiPublicOauthGoogleStartRouteImport } from './routes/api/public/oauth/google/start'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicOauthGoogleStartRoute =
+  ApiPublicOauthGoogleStartRouteImport.update({
+    id: '/api/public/oauth/google/start',
+    path: '/api/public/oauth/google/start',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/public/oauth/google/start': typeof ApiPublicOauthGoogleStartRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/public/oauth/google/start': typeof ApiPublicOauthGoogleStartRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/public/oauth/google/start': typeof ApiPublicOauthGoogleStartRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/public/oauth/google/start'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/public/oauth/google/start'
+  id: '__root__' | '/' | '/api/public/oauth/google/start'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiPublicOauthGoogleStartRoute: typeof ApiPublicOauthGoogleStartRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +59,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/oauth/google/start': {
+      id: '/api/public/oauth/google/start'
+      path: '/api/public/oauth/google/start'
+      fullPath: '/api/public/oauth/google/start'
+      preLoaderRoute: typeof ApiPublicOauthGoogleStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiPublicOauthGoogleStartRoute: ApiPublicOauthGoogleStartRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
