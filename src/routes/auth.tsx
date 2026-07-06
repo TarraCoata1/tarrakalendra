@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { CalendarClock } from "lucide-react";
+import logoAsset from "@/assets/kalendra-logo.png.asset.json";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -52,8 +52,8 @@ function AuthPage() {
       </div>
       <div className="relative w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-[160px] h-[48px] flex items-center justify-center gap-2">
-            <CalendarClock className="w-8 h-8 text-primary" />
+          <div className="flex items-center justify-center gap-3">
+            <img src={logoAsset.url} alt="Kalendra logo" className="w-12 h-12 object-contain" />
             <span className="text-2xl font-bold tracking-tight">Kalendra</span>
           </div>
         </div>
